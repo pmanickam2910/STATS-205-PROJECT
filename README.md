@@ -28,8 +28,7 @@ The project successfully identifies **ESR1** as the direct causal gene determini
 ## Repository Structure
 
 ```
-├── 205_nb.html                  # R Markdown notebook with full analysis
-├── brca_data_w_subtypes.csv     # TCGA Breast Cancer dataset
+├── 205_Rmd                 # R Markdown notebook with full analysis
 ├── HC_consensus_network.png     # Hill Climbing consensus network visualization
 ├── Tabu_consensus_network.png   # Tabu Search consensus network visualization
 ├── 205-Project-Report.pdf       # Final written report
