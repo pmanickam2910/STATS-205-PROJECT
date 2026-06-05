@@ -1,0 +1,1080 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# Load the data
+brca_data <- read.csv("/Users/praavinkumar/Downloads/brca_data_w_subtypes.csv/brca_data_w_subtypes.csv")
+
+# Check it loaded correctly
+head(brca_data)
+```
+
+```{r}
+# Check the ER Status column
+table(brca_data$ER.Status)
+```
+
+```{r}
+# Keep only Positive and Negative patients
+brca_clean <- brca_data[brca_data$ER.Status %in% 
+                        c("Positive", "Negative"), ]
+
+# Check how many patients we have left
+cat("Number of patients:", nrow(brca_clean), "\n")
+
+# Confirm
+table(brca_clean$ER.Status)
+```
+
+```{r}
+gene_columns <- grep("^rs_", colnames(brca_clean), value = TRUE)
+
+rna_data <- brca_clean[, c(gene_columns, "ER.Status")]
+
+cat("Number of genes:", length(gene_columns), "\n")
+cat("Number of patients:", nrow(rna_data), "\n")
+cat("ER Status distribution:\n")
+table(rna_data$ER.Status)
+```
+
+```{r}
+BiocManager::install("limma")
+```
+
+```{r}
+library(limma)
+```
+
+```{r}
+# Separate gene data from ER Status
+gene_data <- rna_data[, gene_columns]
+er_status <- ifelse(rna_data$ER.Status == "Positive", 1, 0)
+
+# Run limma test
+design <- model.matrix(~er_status)
+fit <- lmFit(t(gene_data), design)
+fit <- eBayes(fit)
+
+# Get results
+results <- topTable(fit, coef = 2, number = Inf, sort.by = "P")
+
+# See how many significant genes we found
+significant_genes <- results[results$adj.P.Val < 0.05, ]
+cat("Number of significant genes found:", nrow(significant_genes), "\n")
+```
+
+```{r}
+# From 492 significant genes pick top 80
+top_genes <- rownames(significant_genes)[1:80]
+
+# Create final dataset with only top 80 genes and ER Status
+final_data <- rna_data[, c(top_genes, "ER.Status")]
+
+# Confirm what we have
+cat("Number of genes selected:", length(top_genes), "\n")
+cat("Number of patients:", nrow(final_data), "\n")
+
+# Check first few gene names
+head(top_genes)
+```
+
+```{r}
+install.packages("msigdbr")
+```
+
+```{r}
+library(msigdbr)
+```
+
+```{r}
+# Step 1 - Get breast cancer related genes from MSigDB
+msig_genes <- msigdbr(species = "Homo sapiens", 
+                      category = "C2")
+
+# Filter for breast cancer specific gene sets
+brca_genesets <- msig_genes[grep("BREAST", 
+                            msig_genes$gs_name, 
+                            ignore.case = TRUE), ]
+
+# Get unique gene names
+brca_known_genes <- unique(brca_genesets$gene_symbol)
+
+cat("Number of known breast cancer genes in MSigDB:", 
+    length(brca_known_genes), "\n")
+```
+
+```{r}
+# Remove rs_ prefix from our gene names to match MSigDB format
+our_genes <- gsub("^rs_", "", gene_columns)
+
+# Find which of our genes are in the MSigDB breast cancer list
+matching_genes <- our_genes[our_genes %in% brca_known_genes]
+
+cat("Our total RNA genes:", length(our_genes), "\n")
+cat("Genes matching MSigDB breast cancer list:", 
+    length(matching_genes), "\n")
+```
+
+```{r}
+# Add rs_ prefix back to match our dataset column names
+matching_gene_columns <- paste0("rs_", matching_genes)
+
+# Keep only matching genes from our data
+filtered_data <- rna_data[, c(matching_gene_columns, "ER.Status")]
+
+cat("Patients:", nrow(filtered_data), "\n")
+cat("Genes after MSigDB filter:", 
+    ncol(filtered_data) - 1, "\n")
+```
+
+```{r}
+# Separate gene data from ER Status
+gene_data_filtered <- filtered_data[, matching_gene_columns]
+er_status <- ifelse(filtered_data$ER.Status == "Positive", 1, 0)
+
+# Run limma on 371 breast cancer genes
+design <- model.matrix(~er_status)
+fit2 <- lmFit(t(gene_data_filtered), design)
+fit2 <- eBayes(fit2)
+
+# Get results sorted by significance
+results2 <- topTable(fit2, coef = 2, 
+                     number = Inf, 
+                     sort.by = "P")
+
+# See how many significant genes found
+significant_genes2 <- results2[results2$adj.P.Val < 0.05, ]
+cat("Significant genes after both filters:", 
+    nrow(significant_genes2), "\n")
+```
+
+```{r}
+# Check what top genes look like
+head(top_genes_final)
+
+# Check what columns in filtered_data look like
+head(colnames(filtered_data))
+
+# Check if names match
+head(top_genes_final_rs %in% colnames(filtered_data))
+```
+
+```{r}
+# Get top 80 genes directly from results2
+# without adding rs_ prefix again
+top_genes_final <- rownames(results2)[1:80]
+
+# Check what they look like now
+head(top_genes_final)
+```
+
+```{r}
+# Top 80 genes already have rs_ prefix
+top_genes_final <- rownames(results2)[1:80]
+
+# Create final dataset with top 80 genes and ER Status
+final_data <- filtered_data[, c(top_genes_final, "ER.Status")]
+
+# Confirm what we have
+cat("Final number of genes:", length(top_genes_final), "\n")
+cat("Final number of patients:", nrow(final_data), "\n")
+
+# Show top 6 genes
+head(top_genes_final)
+```
+
+```{r}
+# Make a copy of final data to process
+processed_data <- final_data
+
+# Convert each gene into Low Medium High
+for(gene in top_genes_final) {
+  
+  # Get values for this gene
+  gene_values <- final_data[, gene]
+  
+  # Split into three equal groups
+  # Bottom 33% = Low
+  # Middle 33% = Medium
+  # Top 33%    = High
+  processed_data[, gene] <- cut(gene_values,
+                    breaks = quantile(gene_values, 
+                    probs = c(0, 0.33, 0.66, 1),
+                    na.rm = TRUE),
+                    labels = c("Low", "Medium", "High"),
+                    include.lowest = TRUE)
+}
+
+# Convert ER Status to 0 and 1
+processed_data$ER.Status <- ifelse(
+  final_data$ER.Status == "Positive", 1, 0)
+
+# Check results
+cat("Data processing complete!\n")
+cat("Patients:", nrow(processed_data), "\n")
+cat("Columns:", ncol(processed_data), "\n")
+
+# Check one gene to confirm it worked
+table(processed_data$rs_ESR1)
+```
+
+```{r}
+# Check our processed data is ready
+cat("Patients:", nrow(processed_data), "\n")
+cat("Columns:", ncol(processed_data), "\n")
+
+# Check ER Status conversion worked
+table(processed_data$ER.Status)
+
+# Check one gene discretization worked
+table(processed_data$rs_ESR1)
+```
+
+```{r}
+R.version$version.string
+```
+
+```{r}
+install.packages("bnlearn", 
+                 repos = "https://cran.r-project.org",
+                 type = "binary")
+```
+
+```{r}
+library(bnlearn)
+```
+
+```{r}
+# Convert all columns to factors
+# bnlearn needs factor data type
+bn_data <- processed_data
+
+# Convert each gene column to factor
+for(gene in top_genes_final) {
+  bn_data[, gene] <- as.factor(bn_data[, gene])
+}
+
+# Convert ER Status to factor
+bn_data$ER.Status <- as.factor(bn_data$ER.Status)
+
+# Confirm everything is ready
+cat("Data ready for Bayesian Network!\n")
+cat("Patients:", nrow(bn_data), "\n")
+cat("Columns:", ncol(bn_data), "\n")
+
+# Check data types
+cat("ESR1 type:", class(bn_data$rs_ESR1), "\n")
+cat("ER Status type:", class(bn_data$ER.Status), "\n")
+```
+
+```{r}
+# Algorithm 1 — Hill Climbing with BIC score
+cat("Running Hill Climbing algorithm...\n")
+
+bn_hc <- hc(bn_data, score = "bic")
+
+cat("Hill Climbing network built successfully!\n")
+
+# See how many edges (arrows) were found
+cat("Number of arrows in network:", 
+    narcs(bn_hc), "\n")
+```
+
+```{r}
+# Find which genes directly affect ER Status
+er_parents_hc <- parents(bn_hc, "ER.Status")
+
+cat("Genes directly connected to ER Status:\n")
+print(er_parents_hc)
+cat("Number of direct parent genes:", 
+    length(er_parents_hc), "\n")
+```
+
+```{r}
+# See what genes affect ESR1
+esr1_parents <- parents(bn_hc, "rs_ESR1")
+cat("Genes pointing at ESR1:\n")
+print(esr1_parents)
+```
+
+```{r}
+# See what genes affect AGTR1
+agtr1_parents <- parents(bn_hc, "rs_AGTR1")
+cat("Genes pointing at AGTR1:\n")
+print(agtr1_parents)
+```
+
+```{r}
+# Install and load visualization package
+if(!require(Rgraphviz)) {
+  BiocManager::install("Rgraphviz")
+}
+library(Rgraphviz)
+
+# Plot the Hill Climbing network
+graphviz.plot(bn_hc, 
+              main = "Bayesian Network - Hill Climbing",
+              shape = "ellipse")
+
+```
+
+```{r}
+# Better and cleaner visualization
+install.packages("ggraph")
+install.packages("tidygraph")
+library(ggraph)
+library(tidygraph)
+library(igraph)
+
+# Convert bnlearn network to igraph
+edges <- as.data.frame(arcs(bn_hc))
+colnames(edges) <- c("from", "to")
+
+# Create igraph object
+g <- graph_from_data_frame(edges, directed = TRUE)
+
+# Define node colors based on importance
+node_types <- ifelse(
+  V(g)$name == "ER.Status", "Outcome",
+  ifelse(V(g)$name %in% c("rs_ESR1", "rs_AGTR1"), 
+         "Direct Parent",
+  ifelse(V(g)$name %in% c("rs_FOXA1", 
+                            "rs_KCNJ3", 
+                            "rs_NOVA1"),
+         "Root Gene", "Other Gene")))
+
+# Save as large PNG file
+png("bayesian_network.png", 
+    width = 4000, 
+    height = 3000, 
+    res = 150)
+
+# Plot with clean layout
+plot(g,
+     layout = layout_with_kk(g),
+     vertex.color = ifelse(
+       V(g)$name == "ER.Status", "red",
+       ifelse(V(g)$name %in% c("rs_ESR1", "rs_AGTR1"),
+              "orange",
+       ifelse(V(g)$name %in% c("rs_FOXA1",
+                                "rs_KCNJ3",
+                                "rs_NOVA1"),
+              "lightgreen", "lightblue"))),
+     vertex.size = 20,
+     vertex.label = gsub("rs_", "", V(g)$name),
+     vertex.label.cex = 0.8,
+     vertex.label.color = "black",
+     vertex.frame.color = "gray30",
+     edge.arrow.size = 0.4,
+     edge.arrow.width = 1.5,
+     edge.color = "gray40",
+     edge.width = 1.5,
+     main = "Bayesian Network - Hill Climbing",
+     margin = c(0.2, 0.2, 0.2, 0.2))
+
+# Add legend
+legend("bottomleft",
+       legend = c("ER Status (Outcome)",
+                  "Direct Parents (ESR1, AGTR1)",
+                  "Root Genes (FOXA1, KCNJ3, NOVA1)",
+                  "Other Genes"),
+       fill = c("red", "orange", 
+                "lightgreen", "lightblue"),
+       cex = 1.0,
+       bty = "n")
+
+dev.off()
+
+cat("Graph saved as bayesian_network.png!\n")
+```
+
+```{r}
+library(igraph)
+
+# Convert full network to igraph
+all_arcs <- as.data.frame(arcs(bn_hc))
+colnames(all_arcs) <- c("from", "to")
+g_full <- graph_from_data_frame(all_arcs, 
+                                 directed = TRUE)
+
+# Define colors
+node_colors <- ifelse(
+  V(g_full)$name == "ER.Status", "red",
+  ifelse(V(g_full)$name %in% 
+         c("rs_ESR1", "rs_AGTR1"),
+         "orange",
+  ifelse(V(g_full)$name %in% 
+         c("rs_FOXA1", "rs_KCNJ3", "rs_NOVA1"),
+         "lightgreen", "lightblue")))
+
+# Save as very large PNG
+png("full_network_clean.png",
+    width = 6000,
+    height = 6000,
+    res = 200)
+
+# Use fruchterman reingold layout
+# This spreads nodes most evenly
+set.seed(42)
+plot(g_full,
+     layout = layout_with_fr(g_full),
+     vertex.color = node_colors,
+     vertex.size = 18,
+     vertex.label = gsub("rs_", "", 
+                         V(g_full)$name),
+     vertex.label.cex = 0.9,
+     vertex.label.color = "black",
+     vertex.frame.color = "white",
+     edge.arrow.size = 0.3,
+     edge.color = "gray50",
+     edge.width = 1.2,
+     main = "Bayesian Network - Hill Climbing\nCausal Discovery in Breast Cancer Gene Expression",
+     cex.main = 2)
+
+# Add legend
+legend("bottomleft",
+       legend = c("ER Status (Outcome)",
+                  "Direct Parents (ESR1, AGTR1)",
+                  "Root Genes (FOXA1, KCNJ3, NOVA1)",
+                  "Other Genes"),
+       fill = c("red", "orange", 
+                "lightgreen", "lightblue"),
+       cex = 1.5,
+       bty = "n")
+
+dev.off()
+
+cat("Full clean graph saved!\n")
+```
+
+```{r}
+# Algorithm 2 — Tabu Search with BDe score
+cat("Running Tabu Search algorithm...\n")
+
+bn_tabu <- tabu(bn_data, score = "bde")
+
+cat("Tabu Search network built successfully!\n")
+
+# See how many edges were found
+cat("Number of arrows in network:", 
+    narcs(bn_tabu), "\n")
+
+# Find direct parents of ER Status
+er_parents_tabu <- parents(bn_tabu, "ER.Status")
+cat("Genes directly connected to ER Status:\n")
+print(er_parents_tabu)
+```
+
+```{r}
+# Check parents of ESR1 in Tabu Search
+esr1_parents_tabu <- parents(bn_tabu, "rs_ESR1")
+cat("Genes pointing at ESR1 (Tabu Search):\n")
+print(esr1_parents_tabu)
+
+# Check parents of AGTR1 in Tabu Search
+agtr1_parents_tabu <- parents(bn_tabu, "rs_AGTR1")
+cat("Genes pointing at AGTR1 (Tabu Search):\n")
+print(agtr1_parents_tabu)
+```
+
+```{r}
+# Run 500 bootstrap replicates
+cat("Running 500 bootstrap replicates...\n")
+cat("This will take a few minutes...\n")
+
+set.seed(42)
+boot_strength <- boot.strength(
+  bn_data,
+  R = 500,
+  algorithm = "hc",
+  algorithm.args = list(score = "bic")
+)
+
+cat("Bootstrap complete!\n")
+
+# Show top 10 most reliable arrows
+cat("\nTop 10 most reliable arrows:\n")
+head(boot_strength[order(
+  boot_strength$strength, 
+  decreasing = TRUE), ], 10)
+```
+
+```{r}
+# Build consensus network
+# Keep only arrows with more than 50% bootstrap strength
+
+consensus_network <- averaged.network(
+  boot_strength,
+  threshold = 0.50
+)
+
+cat("Consensus network built!\n")
+cat("Number of arrows in consensus network:",
+    narcs(consensus_network), "\n")
+
+# Find direct parents of ER Status
+# in consensus network
+er_parents_consensus <- parents(
+  consensus_network,
+  "ER.Status"
+)
+
+cat("\nGenes directly connected to ER Status:\n")
+print(er_parents_consensus)
+cat("Number of direct parent genes:",
+    length(er_parents_consensus), "\n")
+```
+
+```{r}
+# Check bootstrap strength for
+# ESR1 → ER Status specifically
+esr1_er <- boot_strength[
+  boot_strength$from == "rs_ESR1" &
+  boot_strength$to == "ER.Status",
+]
+
+cat("ESR1 → ER Status bootstrap results:\n")
+print(esr1_er)
+
+# Also check AGTR1 → ER Status
+agtr1_er <- boot_strength[
+  boot_strength$from == "rs_AGTR1" &
+  boot_strength$to == "ER.Status",
+]
+
+cat("\nAGTR1 → ER Status bootstrap results:\n")
+print(agtr1_er)
+```
+
+```{r}
+# Check both directions for
+# FOXA1 and ESR1 in Hill Climbing bootstrap
+
+cat("FOXA1 → ESR1:\n")
+print(boot_strength[
+  boot_strength$from == "rs_FOXA1" &
+  boot_strength$to == "rs_ESR1",])
+
+cat("\nESR1 → FOXA1:\n")
+print(boot_strength[
+  boot_strength$from == "rs_ESR1" &
+  boot_strength$to == "rs_FOXA1",])
+```
+
+```{r}
+# Build consensus network for Tabu Search
+cat("Building Tabu Search consensus network...\n")
+
+set.seed(42)
+boot_strength_tabu <- boot.strength(
+  bn_data,
+  R = 500,
+  algorithm = "tabu",
+  algorithm.args = list(score = "bde")
+)
+
+# Build consensus network
+consensus_tabu <- averaged.network(
+  boot_strength_tabu,
+  threshold = 0.50
+)
+
+cat("Tabu Search consensus network built!\n")
+cat("Number of arrows:", 
+    narcs(consensus_tabu), "\n")
+
+# Find direct parents of ER Status
+er_parents_tabu <- parents(
+  consensus_tabu,
+  "ER.Status"
+)
+
+cat("\nGenes directly connected to ER Status:\n")
+print(er_parents_tabu)
+
+# Find parents of ESR1
+esr1_parents_tabu <- parents(
+  consensus_tabu,
+  "rs_ESR1"
+)
+
+cat("\nGenes pointing at ESR1:\n")
+print(esr1_parents_tabu)
+```
+
+```{r}
+# Check strength and direction
+# between ESR1 and ER Status
+# in both bootstrap results
+
+cat("Hill Climbing Bootstrap:\n")
+cat("\nESR1 → ER Status:\n")
+print(boot_strength[
+  boot_strength$from == "rs_ESR1" &
+  boot_strength$to == "ER.Status",])
+
+cat("\nER Status → ESR1:\n")
+print(boot_strength[
+  boot_strength$from == "ER.Status" &
+  boot_strength$to == "rs_ESR1",])
+
+cat("\n---\n")
+
+cat("Tabu Search Bootstrap:\n")
+cat("\nESR1 → ER Status:\n")
+print(boot_strength_tabu[
+  boot_strength_tabu$from == "rs_ESR1" &
+  boot_strength_tabu$to == "ER.Status",])
+
+cat("\nER Status → ESR1:\n")
+print(boot_strength_tabu[
+  boot_strength_tabu$from == "ER.Status" &
+  boot_strength_tabu$to == "rs_ESR1",])
+```
+
+```{r}
+# Install required package
+install.packages("glmnet")
+library(glmnet)
+
+# Prepare data for LASSO
+# Convert back to numeric for LASSO
+lasso_data <- final_data
+
+# Convert gene columns to numeric
+gene_matrix <- as.matrix(
+  lasso_data[, top_genes_final])
+
+# Convert ER Status to binary
+er_outcome <- ifelse(
+  lasso_data$ER.Status == "Positive", 1, 0)
+
+cat("Data prepared for LASSO!\n")
+cat("Patients:", nrow(gene_matrix), "\n")
+cat("Genes:", ncol(gene_matrix), "\n")
+cat("ER Positive:", sum(er_outcome), "\n")
+cat("ER Negative:", sum(er_outcome == 0), "\n")
+```
+
+```{r}
+# Run LASSO with 5 fold cross validation
+set.seed(42)
+
+# Create 5 folds
+folds <- sample(rep(1:5, 
+                length.out = nrow(gene_matrix)))
+
+# Store results
+lasso_results <- c()
+
+cat("Running LASSO 5 fold cross validation...\n")
+
+for(fold in 1:5) {
+  
+  # Split into training and testing
+  train_x <- gene_matrix[folds != fold, ]
+  train_y <- er_outcome[folds != fold]
+  test_x  <- gene_matrix[folds == fold, ]
+  test_y  <- er_outcome[folds == fold]
+  
+  # Train LASSO model
+  lasso_model <- cv.glmnet(
+    train_x, 
+    train_y,
+    family = "binomial",
+    alpha = 1
+  )
+  
+  # Predict on test set
+  predictions <- predict(
+    lasso_model,
+    test_x,
+    s = "lambda.min",
+    type = "response"
+  )
+  
+  # Convert to binary prediction
+  predicted_class <- ifelse(predictions > 0.5, 1, 0)
+  
+  # Calculate accuracy
+  accuracy <- mean(predicted_class == test_y)
+  lasso_results <- c(lasso_results, accuracy)
+  
+  cat("Fold", fold, "accuracy:", 
+      round(accuracy, 3), "\n")
+}
+
+cat("\nAverage LASSO accuracy:", 
+    round(mean(lasso_results), 3), "\n")
+```
+
+```{r}
+# Run Bayesian Network 5 fold cross validation
+set.seed(42)
+
+# Store results
+bbn_results <- c()
+
+cat("Running BBN 5 fold cross validation...\n")
+
+for(fold in 1:5) {
+  
+  # Split into training and testing
+  train_data <- bn_data[folds != fold, ]
+  test_data  <- bn_data[folds == fold, ]
+  
+  # Train Bayesian Network
+  bn_fold <- hc(train_data, score = "bic")
+  
+  # Fit parameters
+  fitted_bn <- bn.fit(bn_fold, train_data)
+  
+  # Predict ER Status
+  predictions <- predict(
+    fitted_bn,
+    node = "ER.Status",
+    data = test_data
+  )
+  
+  # Calculate accuracy
+  accuracy <- mean(predictions == test_data$ER.Status)
+  bbn_results <- c(bbn_results, accuracy)
+  
+  cat("Fold", fold, "accuracy:", 
+      round(accuracy, 3), "\n")
+}
+
+cat("\nAverage BBN accuracy:", 
+    round(mean(bbn_results), 3), "\n")
+```
+
+```{r}
+# Run Tabu Search Bayesian Network 
+# 5 fold cross validation
+set.seed(42)
+
+# Store results
+tabu_results <- c()
+
+cat("Running Tabu Search BBN 5 fold cross validation...\n")
+
+for(fold in 1:5) {
+  
+  # Split into training and testing
+  train_data <- bn_data[folds != fold, ]
+  test_data  <- bn_data[folds == fold, ]
+  
+  # Train Tabu Search Bayesian Network
+  bn_fold_tabu <- tabu(train_data, score = "bde")
+  
+  # Fit parameters
+  fitted_bn_tabu <- bn.fit(bn_fold_tabu, train_data)
+  
+  # Predict ER Status
+  predictions_tabu <- predict(
+    fitted_bn_tabu,
+    node = "ER.Status",
+    data = test_data
+  )
+  
+  # Calculate accuracy
+  accuracy <- mean(predictions_tabu == test_data$ER.Status)
+  tabu_results <- c(tabu_results, accuracy)
+  
+  cat("Fold", fold, "accuracy:", 
+      round(accuracy, 3), "\n")
+}
+
+cat("\nAverage Tabu Search BBN accuracy:", 
+    round(mean(tabu_results), 3), "\n")
+```
+
+```{r}
+# Build the complete causal path
+# using ONLY bootstrap validated connections
+# strength >= 0.5 means appeared in
+# more than 50% of 500 networks
+
+cat("Tracing causal path from ER Status...\n\n")
+
+# Step 1
+cat("STEP 1 - What directly causes ER Status?\n")
+step1 <- boot_strength[
+  boot_strength$to == "ER.Status" &
+  boot_strength$strength >= 0.5,]
+cat("Gene:", step1$from, "\n")
+cat("Strength:", step1$strength, "\n")
+cat("Direction:", step1$direction, "\n")
+
+# Step 2
+cat("\nSTEP 2 - What causes ESR1?\n")
+step2 <- boot_strength[
+  boot_strength$to == "rs_ESR1" &
+  boot_strength$strength >= 0.5,]
+if(nrow(step2) > 0) {
+  cat("Gene:", step2$from, "\n")
+  cat("Strength:", step2$strength, "\n")
+  cat("Direction:", step2$direction, "\n")
+} else {
+  cat("Nothing points at ESR1!\n")
+  cat("ESR1 is the ROOT gene!\n")
+}
+
+# Step 3
+cat("\nSTEP 3 - What causes FOXA1?\n")
+step3 <- boot_strength[
+  boot_strength$to == "rs_FOXA1" &
+  boot_strength$strength >= 0.5,]
+if(nrow(step3) > 0) {
+  cat("Gene:", step3$from, "\n")
+  cat("Strength:", step3$strength, "\n")
+  cat("Direction:", step3$direction, "\n")
+} else {
+  cat("Nothing points at FOXA1!\n")
+  cat("FOXA1 is the ROOT gene!\n")
+}
+```
+
+```{r}
+library(bnlearn)
+library(igraph)
+```
+
+```{r}
+library(igraph)
+
+# Get edges from Hill Climbing consensus
+edges_hc <- as.data.frame(arcs(consensus_network))
+colnames(edges_hc) <- c("from", "to")
+
+# Create igraph object
+g_hc <- graph_from_data_frame(edges_hc, 
+                                directed = TRUE)
+
+# Define colors
+node_colors_hc <- ifelse(
+  V(g_hc)$name == "ER.Status", "#FF4444",
+  ifelse(V(g_hc)$name == "rs_ESR1", "#FF9900",
+  ifelse(V(g_hc)$name == "rs_FOXA1", "#44BB44",
+         "#6699FF")))
+
+# Save as PNG
+png("HC_consensus_network.png",
+    width = 5000,
+    height = 5000,
+    res = 200)
+
+set.seed(42)
+plot(g_hc,
+     layout = layout_with_fr(g_hc),
+     vertex.color = node_colors_hc,
+     vertex.size = 20,
+     vertex.label = gsub("rs_", "", V(g_hc)$name),
+     vertex.label.cex = 0.7,
+     vertex.label.color = "white",
+     vertex.frame.color = "white",
+     edge.arrow.size = 0.3,
+     edge.color = "gray50",
+     edge.width = 1.5,
+     main = "Consensus Network - Hill Climbing BIC")
+
+legend("bottomleft",
+       legend = c("ER Status (Outcome)",
+                  "Direct Parent (ESR1)",
+                  "Connected Gene (FOXA1)",
+                  "Other Genes"),
+       fill = c("#FF4444", "#FF9900",
+                "#44BB44", "#6699FF"),
+       cex = 0.8,
+       bty = "n")
+
+dev.off()
+cat("Hill Climbing consensus network saved!\n")
+
+```
+
+```{r}
+cat("Files saved at:", getwd(), "\n")
+```
+
+```{r}
+# Get edges from Tabu Search consensus
+edges_tabu <- as.data.frame(arcs(consensus_tabu))
+colnames(edges_tabu) <- c("from", "to")
+
+# Create igraph object
+g_tabu <- graph_from_data_frame(edges_tabu,
+                                 directed = TRUE)
+
+# Define colors
+node_colors_tabu <- ifelse(
+  V(g_tabu)$name == "ER.Status", "#FF4444",
+  ifelse(V(g_tabu)$name == "rs_ESR1", "#FF9900",
+  ifelse(V(g_tabu)$name == "rs_FOXA1", "#44BB44",
+         "#6699FF")))
+
+# Save as PNG
+png("Tabu_consensus_network.png",
+    width = 5000,
+    height = 5000,
+    res = 200)
+
+set.seed(42)
+plot(g_tabu,
+     layout = layout_with_fr(g_tabu),
+     vertex.color = node_colors_tabu,
+     vertex.size = 20,
+     vertex.label = gsub("rs_", "", V(g_tabu)$name),
+     vertex.label.cex = 0.7,
+     vertex.label.color = "white",
+     vertex.frame.color = "white",
+     edge.arrow.size = 0.3,
+     edge.color = "gray50",
+     edge.width = 1.5,
+     main = "Consensus Network - Tabu Search BDe")
+
+legend("bottomleft",
+       legend = c("ER Status (Outcome)",
+                  "Direct Parent (ESR1)",
+                  "Connected Gene (FOXA1)",
+                  "Other Genes"),
+       fill = c("#FF4444", "#FF9900",
+                "#44BB44", "#6699FF"),
+       cex = 0.8,
+       bty = "n")
+
+dev.off()
+cat("Tabu Search consensus network saved!\n")
+```
+
+```{r}
+# Get direct parents of ER Status
+# from Hill Climbing consensus
+er_parents_hc <- parents(consensus_network, 
+                          "ER.Status")
+esr1_parents_hc <- parents(consensus_network,
+                            "rs_ESR1")
+
+cat("Hill Climbing - Direct parents of ER Status:\n")
+print(er_parents_hc)
+cat("Hill Climbing - Parents of ESR1:\n")
+print(esr1_parents_hc)
+
+# Build focused path
+all_important_hc <- unique(c(
+  "ER.Status",
+  er_parents_hc,
+  esr1_parents_hc
+))
+
+# Get edges for focused path
+focused_edges_hc <- edges_hc[
+  edges_hc$from %in% all_important_hc &
+  edges_hc$to %in% all_important_hc,]
+
+# Create focused graph
+g_focused_hc <- graph_from_data_frame(
+  focused_edges_hc,
+  directed = TRUE)
+
+# Save as PNG
+png("HC_causal_path.png",
+    width = 2000,
+    height = 1500,
+    res = 150)
+
+plot(g_focused_hc,
+     layout = layout_as_tree(g_focused_hc),
+     vertex.color = ifelse(
+       V(g_focused_hc)$name == "ER.Status", "#FF4444",
+       ifelse(V(g_focused_hc)$name == "rs_ESR1",
+              "#FF9900", "#44BB44")),
+     vertex.size = 50,
+     vertex.label = gsub("rs_", "",
+                         V(g_focused_hc)$name),
+     vertex.label.cex = 1.5,
+     vertex.label.color = "white",
+     vertex.frame.color = "white",
+     edge.arrow.size = 1.0,
+     edge.color = "gray40",
+     edge.width = 3,
+     main = "Key Causal Path - Hill Climbing")
+
+legend("bottomleft",
+       legend = c("ER Status (Outcome)",
+                  "Direct Parent (ESR1)",
+                  "Connected Gene (FOXA1)"),
+       fill = c("#FF4444", "#FF9900", "#44BB44"),
+       cex = 1.2,
+       bty = "n")
+
+dev.off()
+cat("Hill Climbing causal path saved!\n")
+```
+
+```{r}
+# Get direct parents of ER Status
+# from Tabu Search consensus
+er_parents_tabu <- parents(consensus_tabu,
+                            "ER.Status")
+esr1_parents_tabu <- parents(consensus_tabu,
+                              "rs_ESR1")
+
+cat("Tabu Search - Direct parents of ER Status:\n")
+print(er_parents_tabu)
+cat("Tabu Search - Parents of ESR1:\n")
+print(esr1_parents_tabu)
+
+# Build focused path
+all_important_tabu <- unique(c(
+  "ER.Status",
+  er_parents_tabu,
+  esr1_parents_tabu
+))
+
+# Get edges for focused path
+focused_edges_tabu <- edges_tabu[
+  edges_tabu$from %in% all_important_tabu &
+  edges_tabu$to %in% all_important_tabu,]
+
+# Create focused graph
+g_focused_tabu <- graph_from_data_frame(
+  focused_edges_tabu,
+  directed = TRUE)
+
+# Save as PNG
+png("Tabu_causal_path.png",
+    width = 2000,
+    height = 1500,
+    res = 150)
+
+plot(g_focused_tabu,
+     layout = layout_as_tree(g_focused_tabu),
+     vertex.color = ifelse(
+       V(g_focused_tabu)$name == "ER.Status", "#FF4444",
+       ifelse(V(g_focused_tabu)$name == "rs_ESR1",
+              "#FF9900", "#44BB44")),
+     vertex.size = 50,
+     vertex.label = gsub("rs_", "",
+                         V(g_focused_tabu)$name),
+     vertex.label.cex = 1.5,
+     vertex.label.color = "white",
+     vertex.frame.color = "white",
+     edge.arrow.size = 1.0,
+     edge.color = "gray40",
+     edge.width = 3,
+     main = "Key Causal Path - Tabu Search")
+
+legend("bottomleft",
+       legend = c("ER Status (Outcome)",
+                  "Direct Parent (ESR1)",
+                  "Connected Gene (FOXA1)"),
+       fill = c("#FF4444", "#FF9900", "#44BB44"),
+       cex = 1.2,
+       bty = "n")
+
+dev.off()
+cat("Tabu Search causal path saved!\n")
+```
