@@ -383,7 +383,6 @@ The ESR1 finding was confirmed by two top medical journals:
 ## Future Work
 
 - Incorporate mutation profiles (mu_ columns) with RNA-seq metrics to better identify treatment resistance drivers
-- Expand sample size toward the original 1100-patient target to enhance bootstrap directionality confidence
 - Conduct laboratory validation such as knockdown assays to confirm the ESR1 → ER Status link
 - Analyze longitudinal expression patterns across multiple treatment stages to uncover ESR1 regulatory mechanisms
 - Broaden to multi-omics approach integrating copy number and mutation data
