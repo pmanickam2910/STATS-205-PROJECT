@@ -16,8 +16,7 @@ The project successfully identifies **ESR1** as the direct causal gene determini
 ### The Biological Problem
 
 - **ER Positive patients** have the ER protein on cancer cells. Estrogen connects to this protein and accelerates cancer growth. Hormone therapy blocks this receptor and works effectively.
-- **ER Negative patients** produce little or no ER protein. Hormone therapy has nothing to block and completely fails leaving these patients with very limited treatment options.
-- The **ESR1 gene** produces the ER protein. This project identifies ESR1 as the direct causal parent of ER Status. What causes ESR1 to behave differently between patients remains an open question for future research.
+- **ER Negative patients** produce little or no ER protein. Hormone therapy has nothing to block and completely fails leaving these patients with other treatment options.
 
 ### Main Finding
 
