@@ -328,10 +328,10 @@ for(fold in 1:5) {
 
 | Connection | Algorithm | Strength | Direction | Conclusion |
 |---|---|---|---|---|
-| ESR1 → ER Status | Hill Climbing | 0.876 | 0.953 | Reliable ✅ |
-| ESR1 → ER Status | Tabu Search | 0.894 | 0.928 | Reliable ✅ |
-| AGTR1 → ER Status | Hill Climbing | 0.342 | 0.833 | Rejected ❌ |
-| FOXA1 ↔ ESR1 | Hill Climbing | 0.952 | 0.418/0.582 | Undirected ⚠️ |
+| ESR1 → ER Status | Hill Climbing | 0.876 | 0.953 | Reliable  |
+| ESR1 → ER Status | Tabu Search | 0.894 | 0.928 | Reliable |
+| AGTR1 → ER Status | Hill Climbing | 0.342 | 0.833 | Rejected  |
+| FOXA1 ↔ ESR1 | Hill Climbing | 0.952 | 0.418/0.582 | Undirected  |
 
 ### Consensus Network Results
 
@@ -376,7 +376,6 @@ The ESR1 finding was confirmed by two top medical journals:
 ## Limitations
 
 - **Observational data:** Cannot definitively prove causation. All findings are causal hypotheses for experimental follow-up. Causal sufficiency and faithfulness assumptions may not fully hold as TCGA does not capture every confounder.
-- **Sample size:** 549 patients instead of proposed 1100 affects direction confidence particularly for upstream genes.
 - **Direction uncertainty:** FOXA1 and ESR1 show 95.2% bootstrap strength but direction remains uncertain at 58/42 split and is reported as undirected.
 - **Expression vs mutations:** Expression data alone cannot capture ESR1 mutations which are a known driver of acquired treatment resistance. Future work should integrate mutation data (mu_ columns) alongside expression data.
 
